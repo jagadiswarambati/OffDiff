@@ -1,3 +1,13 @@
+/**
+ * @file verifier.ts
+ * @description Claim verification engine for OffDiff.
+ * Parses agent completion summaries into structured claims (e.g. caller updates,
+ * removed references, breaking change claims, signature changes). Evaluates each claim
+ * deterministically against Git diffs and Graphify AST graphs, cross-checks all modified
+ * functions in the diff for untouched callers across the repository, and optionally
+ * consults Gemma 4 AI for semantic ambiguity analysis.
+ */
+
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -12,19 +22,37 @@ import { MissedCallerDetector } from './detector';
 import { GraphifyGraphData } from './graphify';
 import { AIService } from './ai';
 
+/**
+ * Raw claim extracted from an agent completion summary.
+ */
 export interface ExtractedClaimRaw {
+  /** Original raw text line describing the claim */
   rawText: string;
+  /** Categorized claim type (callers_updated, reference_removed, etc.) */
   type: Claim['type'];
+  /** Extracted symbol name (function, variable, or class) */
   targetSymbol?: string;
+  /** Optional conditional phrase (e.g., arguments passed) */
   condition?: string;
 }
 
+/**
+ * ClaimVerifier evaluates claims against real Git diffs and code graphs.
+ */
 export class ClaimVerifier {
   private repoPath: string;
   private gitChanges: GitFileChange[];
   private detector: MissedCallerDetector;
   private aiService: AIService;
 
+  /**
+   * Constructs a ClaimVerifier instance.
+   *
+   * @param repoPath Absolute or relative repository root path
+   * @param gitChanges Collection of parsed Git file changes with modified line numbers
+   * @param detector MissedCallerDetector instance to locate call sites
+   * @param aiService Optional AIService instance for semantic checks
+   */
   constructor(
     repoPath: string,
     gitChanges: GitFileChange[],
@@ -241,6 +269,15 @@ export class ClaimVerifier {
     };
   }
 
+  /**
+   * Evaluates a single parsed claim using AST call analysis, workspace scanning, and optional AI.
+   *
+   * @param claimId Unique identifier for this claim (e.g. 'claim-1')
+   * @param claimRaw Raw extracted claim object
+   * @param graphData Optional Graphify AST knowledge graph
+   * @param useAi Whether to invoke Gemma 4 AI for semantic ambiguity analysis
+   * @returns Claim evaluation result, accompanying findings evidence, and untouched callers
+   */
   private async verifySingleClaim(
     claimId: string,
     claimRaw: ExtractedClaimRaw,
@@ -501,6 +538,14 @@ export class ClaimVerifier {
     return { claim, findings, untouched };
   }
 
+  /**
+   * Validates whether a given code snippet actually exists in the target source file on disk.
+   *
+   * @param relFile Relative path to the source file
+   * @param line 1-based line number of the snippet
+   * @param snippet Code snippet to verify
+   * @returns true if the file exists and contains the snippet content
+   */
   private validateSnippet(relFile: string, line: number, snippet: string): boolean {
     try {
       const absFile = path.resolve(this.repoPath, relFile);
@@ -513,6 +558,12 @@ export class ClaimVerifier {
     }
   }
 
+  /**
+   * Scans all supported source files in the repository workspace for references to a symbol.
+   *
+   * @param targetSymbol Identifier to search for across files
+   * @returns Array of matches with relative file path, line number, and context snippet
+   */
   private findReferencesInWorkspace(targetSymbol: string): Array<{ file: string; line: number; snippet: string }> {
     const results: Array<{ file: string; line: number; snippet: string }> = [];
     const sourceFiles = this.findSourceFiles(this.repoPath);
@@ -540,6 +591,11 @@ export class ClaimVerifier {
     return results;
   }
 
+  /**
+   * Inspects Git diff hunks to detect function signature modifications that added parameters.
+   *
+   * @returns Array of detected signature modifications with file, line, symbol, and snippet
+   */
   private findSignatureModificationsInDiff(): Array<{ file: string; line: number; symbol: string; snippet: string }> {
     const results: Array<{ file: string; line: number; symbol: string; snippet: string }> = [];
 
@@ -565,6 +621,14 @@ export class ClaimVerifier {
     return results;
   }
 
+  /**
+   * Recursively traverses repository directory to discover source code files,
+   * ignoring build artifacts, caches, and dependency folders.
+   *
+   * @param dir Directory to traverse
+   * @param baseDir Base root directory for computing relative paths
+   * @returns Array of relative source file paths
+   */
   private findSourceFiles(dir: string, baseDir: string = dir): string[] {
     const files: string[] = [];
     const validExts = new Set(['.py', '.js', '.jsx', '.ts', '.tsx', '.go', '.rs', '.java']);
@@ -591,6 +655,12 @@ export class ClaimVerifier {
   }
 }
 
+/**
+ * Escapes special regex characters in a raw string literal.
+ *
+ * @param string Raw string to escape
+ * @returns Regex-safe string pattern
+ */
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

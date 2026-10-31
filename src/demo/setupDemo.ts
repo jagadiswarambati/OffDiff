@@ -12,6 +12,10 @@ import fs from 'node:fs';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Base Python source code for pricing module before refactoring.
+ * Defines `get_price(sku)` and 3 callers: `invoice_total`, `export_total`, and `receipt_total`.
+ */
 export const BASE_CODE = `def get_price(sku):
     return 100
 
@@ -25,6 +29,10 @@ def receipt_total(sku):
     return get_price(sku)
 `;
 
+/**
+ * Incomplete refactoring Python code where `get_price` signature changed to `(sku, currency)`
+ * and `invoice_total` + `export_total` were updated, but `receipt_total` was missed.
+ */
 export const INCOMPLETE_HEAD_CODE = `def get_price(sku, currency):
     return 100
 
@@ -38,6 +46,9 @@ def receipt_total(sku):
     return get_price(sku)
 `;
 
+/**
+ * Complete refactoring Python code where all 3 callers were properly updated to pass `"INR"`.
+ */
 export const COMPLETE_HEAD_CODE = `def get_price(sku, currency):
     return 100
 
@@ -51,6 +62,13 @@ def receipt_total(sku):
     return get_price(sku, "INR")
 `;
 
+/**
+ * Sets up or resets a local Git demo repository with either 'incomplete' or 'complete' refactor commits.
+ *
+ * @param targetDir Destination directory on filesystem (defaults to './demo-repo')
+ * @param mode Scenario mode: 'incomplete' (missed caller in receipt_total) or 'complete'
+ * @returns Object containing repository path and 8-character base and head revision hashes
+ */
 export async function setupDemoRepository(
   targetDir: string = path.resolve(process.cwd(), 'demo-repo'),
   mode: 'incomplete' | 'complete' = 'incomplete'

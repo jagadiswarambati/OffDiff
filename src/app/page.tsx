@@ -1,3 +1,12 @@
+/**
+ * @file page.tsx
+ * @description Main interactive web dashboard for OffDiff.
+ * Allows users to inspect local Git repositories or remote GitHub repositories,
+ * specify base Git revisions (e.g. HEAD~1, commit SHA), formulate agent completion
+ * claims (or auto-detect them from the latest commit), execute deterministic and AI
+ * verification gates, and review granular evidence across AST call graphs and git diffs.
+ */
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -23,13 +32,18 @@ import {
 } from 'lucide-react';
 import type { VerificationResult, FindingEvidence } from '@/core/types';
 
+/**
+ * Main interactive Dashboard component for OffDiff.
+ */
 export default function Dashboard() {
+  // Input form state: repository path, base Git revision, completion claim text
   const [repoPath, setRepoPath] = useState('demo-repo');
   const [baseRevision, setBaseRevision] = useState('HEAD~1');
   const [summary, setSummary] = useState('Updated all callers of get_price to pass the currency.');
   const [strict, setStrict] = useState(false);
   const [useAi, setUseAi] = useState(false);
 
+  // Execution & UI state
   const [loading, setLoading] = useState(false);
   const [settingDemo, setSettingDemo] = useState(false);
   const [result, setResult] = useState<VerificationResult | null>(null);
@@ -44,6 +58,13 @@ export default function Dashboard() {
     runVerification();
   }, []);
 
+  /**
+   * Queries /api/repo-info to inspect repository commit metadata and diff,
+   * automatically setting the summary claim to match the latest commit.
+   *
+   * @param targetRepo Optional repository path override
+   * @param targetBase Optional base Git revision override
+   */
   async function autoDetectClaim(targetRepo?: string, targetBase?: string) {
     const r = targetRepo || repoPath;
     const b = targetBase || baseRevision;
@@ -63,6 +84,12 @@ export default function Dashboard() {
     }
   }
 
+  /**
+   * Dispatches verification request to POST /api/verify with current settings.
+   *
+   * @param overrideSummary Optional summary claim string override
+   * @param overrideBase Optional base revision string override
+   */
   async function runVerification(overrideSummary?: string, overrideBase?: string) {
     setLoading(true);
     setError(null);
@@ -98,6 +125,11 @@ export default function Dashboard() {
     }
   }
 
+  /**
+   * Pre-loads one of the three mandatory evaluation scenarios into the demo repo.
+   *
+   * @param scenario 'incomplete' | 'complete' | 'breaking'
+   */
   async function loadScenario(scenario: 'incomplete' | 'complete' | 'breaking') {
     setSettingDemo(true);
     setError(null);
