@@ -1,3 +1,10 @@
+/**
+ * @file git.ts
+ * @description Git inspection service for OffDiff. Handles Git repository discovery,
+ * revision validation, remote GitHub repository cloning and caching, diff parsing,
+ * modified line detection, untracked file handling, and commit metadata extraction.
+ */
+
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
@@ -6,22 +13,45 @@ import { GitFileChange, DiffHunk } from './types';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Result of inspecting a Git repository at a specific base revision.
+ */
 export interface GitInspectionResult {
+  /** Local resolved directory path on filesystem */
   repoPath: string;
+  /** Resolved 8-character base revision commit hash */
   baseRevision: string;
+  /** Current HEAD commit hash or 'WORKING_TREE' */
   headRevision: string;
+  /** Subject line of the latest commit at HEAD */
   commitSubject?: string;
+  /** Full commit message body */
   commitMessage?: string;
+  /** Author name of latest commit */
   commitAuthor?: string;
+  /** ISO/Git date string of latest commit */
   commitDate?: string;
+  /** Structured changes per file */
   changes: GitFileChange[];
+  /** List of modified file paths */
   modifiedFiles: string[];
+  /** List of newly added file paths */
   addedFiles: string[];
+  /** List of deleted file paths */
   deletedFiles: string[];
+  /** List of untracked file paths in working tree */
   untrackedFiles: string[];
+  /** Raw unified diff output from git diff */
   rawDiff: string;
 }
 
+/**
+ * Execute a Git command safely with standard maxBuffer and error handling.
+ *
+ * @param args Git command line arguments (e.g. ['status', '--porcelain'])
+ * @param cwd Working directory for the git execution
+ * @returns Trimmed stdout string
+ */
 export async function runGit(args: string[], cwd: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync('git', args, {
@@ -37,6 +67,12 @@ export async function runGit(args: string[], cwd: string): Promise<string> {
   }
 }
 
+/**
+ * Checks whether an input string represents a remote Git URL or GitHub URL.
+ *
+ * @param input Path or URL string
+ * @returns true if input is an HTTP(S), SSH, or GitHub remote URL
+ */
 export function isRemoteGitUrl(input: string): boolean {
   if (!input || typeof input !== 'string') return false;
   const trimmed = input.trim();
@@ -46,6 +82,10 @@ export function isRemoteGitUrl(input: string): boolean {
   return /^(https?:\/\/|git@|github\.com\/)/i.test(trimmed) || (trimmed.endsWith('.git') && !fs.existsSync(trimmed));
 }
 
+/**
+ * Normalizes user-supplied Git URLs into full HTTPS URLs.
+ * Handles cases like 'github.com/owner/repo' -> 'https://github.com/owner/repo'.
+ */
 export function normalizeGitUrl(input: string): string {
   const trimmed = input.trim();
   if (/^github\.com\//i.test(trimmed)) {
@@ -54,6 +94,14 @@ export function normalizeGitUrl(input: string): string {
   return trimmed;
 }
 
+/**
+ * Ensures the target repository exists locally on disk.
+ * If given a remote GitHub or Git URL, clones it into a local cache directory (.offdiff-cache/repos/)
+ * and runs `git fetch` to keep commits updated.
+ *
+ * @param repoPathOrUrl Local path or remote Git URL
+ * @returns Absolute local directory path of the repository
+ */
 export async function ensureRepositoryPath(repoPathOrUrl: string): Promise<string> {
   const trimmed = repoPathOrUrl.trim();
   if (!isRemoteGitUrl(trimmed)) {
@@ -117,6 +165,15 @@ export async function ensureRepositoryPath(repoPathOrUrl: string): Promise<strin
   return targetDir;
 }
 
+/**
+ * Inspects a Git repository at a specified base revision.
+ * Evaluates the working tree and diff hunks, verifies commits, captures untracked files,
+ * and extracts latest commit metadata.
+ *
+ * @param repoPath Path to local git directory or remote GitHub URL
+ * @param baseRevision Base commit revision to compare against (default 'HEAD~1')
+ * @returns Structured Git inspection result
+ */
 export async function inspectGitRepository(
   repoPath: string,
   baseRevision: string = 'HEAD~1'
@@ -224,6 +281,14 @@ export async function inspectGitRepository(
   };
 }
 
+/**
+ * Parses raw unified git diff output into structured file changes,
+ * line numbers, insertions, deletions, and diff hunks.
+ *
+ * @param rawDiff Output from git diff
+ * @param untrackedFiles Optional list of untracked files to incorporate
+ * @returns Array of structured GitFileChange objects
+ */
 export function parseGitDiff(rawDiff: string, untrackedFiles: string[] = []): GitFileChange[] {
   const files: GitFileChange[] = [];
   if (!rawDiff && untrackedFiles.length === 0) {

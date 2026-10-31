@@ -275,13 +275,16 @@ export default function Dashboard() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Base Git Revision</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-slate-400">Base Git Revision</label>
+                <span className="text-[10px] text-slate-400 font-mono">e.g. HEAD~1, HEAD~2, main</span>
+              </div>
               <input
                 type="text"
                 value={baseRevision}
                 onChange={e => setBaseRevision(e.target.value)}
                 className="w-full bg-[#0d1117] border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
-                placeholder="HEAD~1"
+                placeholder="HEAD~1 (or main, HEAD~2, commit SHA)"
               />
             </div>
 
@@ -477,9 +480,14 @@ export default function Dashboard() {
             {/* Missed Callers Alert Callout */}
             {result.untouchedCallers.length > 0 && (
               <div className="bg-red-950/20 border border-red-900 rounded-xl p-4">
-                <div className="flex items-center space-x-2 text-red-400 font-semibold text-sm mb-3">
-                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                  <span>Potentially Affected Untouched Code (Missed Callers Detected):</span>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-2 text-red-400 font-semibold text-sm">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    <span>All Discovered Untouched Code Problems ({result.untouchedCallers.length} Missed Callers):</span>
+                  </div>
+                  <span className="text-xs font-mono bg-red-950 px-2 py-0.5 rounded text-red-300 border border-red-800">
+                    {result.untouchedCallers.length} Problem{result.untouchedCallers.length > 1 ? 's' : ''} Detected
+                  </span>
                 </div>
                 <div className="space-y-2">
                   {result.untouchedCallers.map((caller, i) => (

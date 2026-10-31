@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { inspectGitRepository } from '@/core/git';
 
+/**
+ * API Route: /api/repo-info
+ *
+ * Dynamically inspects any local or remote Git repository at any specified Base Revision.
+ * Returns commit metadata, diff statistics, changed files, and an auto-formulated suggested
+ * completion claim tailored to that exact repository state and revision range.
+ */
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -18,6 +25,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const diffSummary = `${gitResult.changes.length} file(s) changed (${gitResult.modifiedFiles.length} modified, ${gitResult.addedFiles.length} added, ${gitResult.deletedFiles.length} deleted)`;
+
     return NextResponse.json({
       repoPath: gitResult.repoPath,
       baseRevision: gitResult.baseRevision,
@@ -26,6 +35,8 @@ export async function GET(req: NextRequest) {
       commitMessage: gitResult.commitMessage || '',
       commitAuthor: gitResult.commitAuthor || '',
       commitDate: gitResult.commitDate || '',
+      diffSummary,
+      changedFilesCount: gitResult.changes.length,
       changedFiles: gitResult.changes.map(c => ({
         path: c.path,
         status: c.status,

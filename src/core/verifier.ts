@@ -6,6 +6,7 @@ import {
   FindingEvidence,
   GitFileChange,
   UntouchedCaller,
+  ChangedFunction,
 } from './types';
 import { MissedCallerDetector } from './detector';
 import { GraphifyGraphData } from './graphify';
@@ -113,12 +114,20 @@ export class ClaimVerifier {
   }
 
   /**
-   * Verify all extracted claims against code changes and codebase state
+   * Verify all extracted claims against code changes and codebase state,
+   * AND automatically inspect EVERY changed function across the entire git diff
+   * to catch all untouched callers and broken dependencies.
+   *
+   * @param summary The completion summary claim from user or AI agent
+   * @param graphData Graphify Tree-sitter knowledge graph data
+   * @param useAi Whether to trigger Gemma 4 AI for semantic inspection
+   * @param changedFunctions List of all functions detected as modified in the diff
    */
   async verifyAll(
     summary: string,
     graphData?: GraphifyGraphData,
-    useAi: boolean = false
+    useAi: boolean = false,
+    changedFunctions: ChangedFunction[] = []
   ): Promise<{
     claims: Claim[];
     findings: FindingEvidence[];
@@ -129,8 +138,15 @@ export class ClaimVerifier {
     const allFindings: FindingEvidence[] = [];
     const allUntouchedCallers: UntouchedCaller[] = [];
 
+    // Track symbols that have been checked via user claims to avoid duplicates
+    const checkedSymbols = new Set<string>();
+
+    // 1. Evaluate explicit claims from summary
     for (let i = 0; i < rawClaims.length; i++) {
       const raw = rawClaims[i];
+      if (raw.targetSymbol) {
+        checkedSymbols.add(raw.targetSymbol);
+      }
       const claimId = `claim-${i + 1}`;
 
       const { claim, findings, untouched } = await this.verifySingleClaim(
@@ -145,10 +161,83 @@ export class ClaimVerifier {
       allUntouchedCallers.push(...untouched);
     }
 
+    // 2. Comprehensive check: Inspect EVERY modified function across all files in the diff.
+    // If a function was modified and has callers that were NOT updated in the diff,
+    // surface every untouched caller as an issue.
+    for (const fn of changedFunctions) {
+      if (checkedSymbols.has(fn.name)) continue;
+      checkedSymbols.add(fn.name);
+
+      const allCallSites = await this.detector.detectCallers(fn.name, graphData);
+      const untouchedSites = allCallSites.filter(s => s.status === 'UNTOUCHED');
+
+      if (untouchedSites.length > 0) {
+        const claimId = `claim-fn-${claims.length + 1}`;
+        for (const u of untouchedSites) {
+          allUntouchedCallers.push({
+            symbol: fn.name,
+            caller: u.caller,
+            file: u.file,
+            line: u.line,
+            snippet: u.snippet,
+            isModified: false,
+            status: 'UNTOUCHED',
+          });
+
+          allFindings.push({
+            id: `ev-${claimId}-${allFindings.length + 1}`,
+            claimText: `Verify all callers of modified function '${fn.name}'`,
+            verdict: 'CONTRADICTED',
+            filePath: u.file,
+            lineNumber: u.line,
+            snippet: u.snippet,
+            callerName: u.caller,
+            targetSymbol: fn.name,
+            explanation: `Call to modified function '${fn.name}' in '${u.caller}' remains UNTOUCHED at line ${u.line}.`,
+            source: 'deterministic',
+            confidence: 1.0,
+            validated: this.validateSnippet(u.file, u.line, u.snippet),
+          });
+        }
+
+        claims.push({
+          id: claimId,
+          rawText: `Callers of modified function '${fn.name}' (${fn.file}:${fn.line}) updated`,
+          targetSymbol: fn.name,
+          type: 'callers_updated',
+          status: 'CONTRADICTED',
+          evidence: allFindings.filter(f => f.targetSymbol === fn.name),
+          explanation: `Contradicted: Found ${untouchedSites.length} untouched caller(s) of '${fn.name}' across the repository.`,
+        });
+      } else if (allCallSites.length > 0) {
+        const claimId = `claim-fn-${claims.length + 1}`;
+        claims.push({
+          id: claimId,
+          rawText: `Callers of modified function '${fn.name}' (${fn.file}:${fn.line}) updated`,
+          targetSymbol: fn.name,
+          type: 'callers_updated',
+          status: 'VERIFIED',
+          evidence: [],
+          explanation: `Verified: All ${allCallSites.length} caller(s) of '${fn.name}' were updated in git diff.`,
+        });
+      }
+    }
+
+    // Deduplicate untouched callers by file:line:symbol:caller
+    const uniqueUntouched: UntouchedCaller[] = [];
+    const seenUntouched = new Set<string>();
+    for (const u of allUntouchedCallers) {
+      const key = `${u.file}:${u.line}:${u.symbol}:${u.caller}`;
+      if (!seenUntouched.has(key)) {
+        seenUntouched.add(key);
+        uniqueUntouched.push(u);
+      }
+    }
+
     return {
       claims,
       findings: allFindings,
-      untouchedCallers: allUntouchedCallers,
+      untouchedCallers: uniqueUntouched,
     };
   }
 

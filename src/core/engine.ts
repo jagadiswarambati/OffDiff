@@ -61,11 +61,12 @@ export class OffDiffEngine {
       activeSummary = gitResult.commitSubject || gitResult.commitMessage || 'Code changes in recent commit';
     }
 
-    // 5. Verify claims against code changes
+    // 5. Verify claims against code changes and inspect ALL changed functions in the diff
     const { claims, findings, untouchedCallers } = await verifier.verifyAll(
       activeSummary,
       graphResult.graphData,
-      request.useAi
+      request.useAi,
+      changedFunctions
     );
 
     // 6. Build dependency relationships (from Graphify or fallback AST scan)
@@ -99,13 +100,26 @@ export class OffDiffEngine {
     let overallVerdict: 'PASSED' | 'FAILED' | 'WARNING' = 'PASSED';
     let suggestedAction = '';
 
+    // 8. Generate comprehensive actionable next steps listing ALL discovered problems
     if (contradictedCount > 0 || untouchedCallersCount > 0) {
       overallVerdict = 'FAILED';
       if (untouchedCallers.length > 0) {
-        const first = untouchedCallers[0];
-        suggestedAction = `Action Required: Update untouched caller '${first.caller}' in ${first.file}:${first.line} to pass the required arguments to '${first.symbol}'.`;
+        if (untouchedCallers.length === 1) {
+          const first = untouchedCallers[0];
+          suggestedAction = `Action Required (1 untouched caller): Update caller '${first.caller}' in ${first.file}:${first.line} calling '${first.symbol}'.`;
+        } else {
+          // List ALL untouched callers discovered across the codebase
+          const summaryList = untouchedCallers
+            .map((u, i) => `${i + 1}) '${u.caller}' in ${u.file}:${u.line} (calls '${u.symbol}')`)
+            .join('; ');
+          suggestedAction = `Action Required (${untouchedCallers.length} untouched callers detected): Update callers: ${summaryList}`;
+        }
       } else {
-        suggestedAction = 'Action Required: Code changes contradict the completion claim. Inspect conflicting evidence before proceeding.';
+        const contradictedList = claims
+          .filter(c => c.status === 'CONTRADICTED')
+          .map(c => `"${c.rawText}"`)
+          .join(', ');
+        suggestedAction = `Action Required (${contradictedCount} claim(s) contradicted): Code changes contradict completion claim(s) ${contradictedList}. Inspect conflicting evidence before proceeding.`;
       }
     } else if (atRiskCount > 0 || (request.strict && !graphResult.status.executed)) {
       overallVerdict = 'WARNING';
@@ -172,6 +186,18 @@ export class OffDiffEngine {
     return VerificationResultSchema.parse(result);
   }
 
+  /**
+   * Identifies all functions modified in the Git diff across all supported languages.
+   * Parses additions and deletions to detect signature changes, parameter additions/removals,
+   * and newly introduced functions.
+   *
+   * Supports:
+   * - Python: def foo(args), async def foo(args)
+   * - JavaScript/TypeScript: function foo(args), async function foo(args), export function foo(args)
+   * - JS/TS Arrow & Expression Functions: const foo = (args) =>, export const foo = (args) =>
+   * - Go: func (r *Receiver) Foo(args), func Foo(args)
+   * - Rust: fn foo(args), pub fn foo(args)
+   */
   private detectChangedFunctions(changes: any[]): ChangedFunction[] {
     const list: ChangedFunction[] = [];
     const seen = new Set<string>();
@@ -180,27 +206,26 @@ export class OffDiffEngine {
       for (const hunk of fileChange.diffHunks) {
         const lines = hunk.content.split('\n');
         let oldSig = '';
-        let newSig = '';
 
         for (const line of lines) {
           if (line.startsWith('-') && !line.startsWith('---')) {
-            const m = line.match(/^-\s*(?:def|function)\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
-            if (m) oldSig = `${m[1]}(${m[2].trim()})`;
+            const stripped = line.slice(1).trim();
+            const fn = this.parseFunctionSignatureLine(stripped);
+            if (fn) oldSig = fn.signature;
           } else if (line.startsWith('+') && !line.startsWith('+++')) {
-            const m = line.match(/^\+\s*(?:def|function)\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
-            if (m) {
-              const fnName = m[1];
-              newSig = `${fnName}(${m[2].trim()})`;
-              const key = `${fileChange.path}:${fnName}`;
+            const stripped = line.slice(1).trim();
+            const fn = this.parseFunctionSignatureLine(stripped);
+            if (fn) {
+              const key = `${fileChange.path}:${fn.name}`;
               if (!seen.has(key)) {
                 seen.add(key);
                 list.push({
-                  name: fnName,
+                  name: fn.name,
                   file: fileChange.path,
                   line: hunk.newStart,
                   oldSignature: oldSig || undefined,
-                  newSignature: newSig,
-                  snippet: line.slice(1).trim(),
+                  newSignature: fn.signature,
+                  snippet: stripped,
                 });
               }
             }
@@ -210,6 +235,36 @@ export class OffDiffEngine {
     }
 
     return list;
+  }
+
+  /**
+   * Helper function to match and parse function declarations across multiple programming languages.
+   */
+  private parseFunctionSignatureLine(line: string): { name: string; signature: string } | null {
+    // 1. Python def / async def
+    const py = line.match(/^(?:async\s+)?def\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
+    if (py) return { name: py[1], signature: `${py[1]}(${py[2].trim()})` };
+
+    // 2. JS/TS standard: [export [default]] [async] function foo(args)
+    const jsFn = line.match(/^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
+    if (jsFn) return { name: jsFn[1], signature: `${jsFn[1]}(${jsFn[2].trim()})` };
+
+    // 3. JS/TS arrow/expression: [export] const/let/var foo = [async] (args) =>
+    const jsArrow = line.match(/^(?:export\s+)?(?:const|let|var)\s+([a-zA-Z0-9_]+)\s*=\s*(?:async\s*)?(?:\(([^)]*)\)|([a-zA-Z0-9_]+))\s*=>/);
+    if (jsArrow) {
+      const args = (jsArrow[2] || jsArrow[3] || '').trim();
+      return { name: jsArrow[1], signature: `${jsArrow[1]}(${args})` };
+    }
+
+    // 4. Go functions: func (r Receiver) Name(args) or func Name(args)
+    const goFn = line.match(/^func\s+(?:\([^)]*\)\s+)?([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
+    if (goFn) return { name: goFn[1], signature: `${goFn[1]}(${goFn[2].trim()})` };
+
+    // 5. Rust functions: [pub] [async] fn name(args)
+    const rustFn = line.match(/^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
+    if (rustFn) return { name: rustFn[1], signature: `${rustFn[1]}(${rustFn[2].trim()})` };
+
+    return null;
   }
 
   private async buildFallbackRelationships(
