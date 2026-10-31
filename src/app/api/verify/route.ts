@@ -12,6 +12,14 @@ import { OffDiffEngine } from '@/core/engine';
 import { VerificationRequestSchema } from '@/core/types';
 import { isRemoteGitUrl } from '@/core/git';
 
+/**
+ * Handles POST requests to /api/verify.
+ * Validates request payload against VerificationRequestSchema, invokes OffDiffEngine,
+ * and responds with full verification findings and gate verdict.
+ *
+ * @param req NextRequest carrying VerificationRequest JSON payload
+ * @returns JSON response with VerificationResult object or 400/500 on error
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();

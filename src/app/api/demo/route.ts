@@ -9,6 +9,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import path from 'node:path';
 import { setupDemoRepository } from '@/demo/setupDemo';
 
+/**
+ * Handles GET requests to /api/demo.
+ * Returns metadata and expected gate verdicts for the three mandatory demo scenarios.
+ *
+ * @returns JSON list of available demo scenario definitions
+ */
 export async function GET() {
   const demoPath = path.resolve(process.cwd(), 'demo-repo');
   return NextResponse.json({
@@ -43,6 +49,14 @@ export async function GET() {
   });
 }
 
+/**
+ * Handles POST requests to /api/demo.
+ * Dynamically re-configures the local `demo-repo` Git repository to either the
+ * 'incomplete' (missed caller) or 'complete' (all callers updated) scenario state.
+ *
+ * @param req NextRequest carrying `{ scenario: 'incomplete' | 'complete' }`
+ * @returns JSON confirmation with updated repoPath and baseRevision
+ */
 export async function POST(req: NextRequest) {
   try {
     const { scenario } = await req.json();

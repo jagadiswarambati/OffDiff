@@ -1,12 +1,19 @@
+/**
+ * @file route.ts (repo-info)
+ * @description API endpoint: GET /api/repo-info
+ * Dynamically inspects any local or remote Git repository at any specified Base Revision.
+ * Returns commit metadata, diff statistics, changed files, and an auto-formulated suggested
+ * completion claim tailored to that exact repository state and revision range.
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { inspectGitRepository } from '@/core/git';
 
 /**
- * API Route: /api/repo-info
+ * Handles GET requests to /api/repo-info.
  *
- * Dynamically inspects any local or remote Git repository at any specified Base Revision.
- * Returns commit metadata, diff statistics, changed files, and an auto-formulated suggested
- * completion claim tailored to that exact repository state and revision range.
+ * @param req Incoming NextRequest containing `repo` and `base` search parameters
+ * @returns JSON response containing commit metadata, diff statistics, and suggested claim
  */
 export async function GET(req: NextRequest) {
   try {
