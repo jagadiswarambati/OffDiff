@@ -15,9 +15,13 @@ import {
   Clock,
   Layers,
   Terminal,
-  ExternalLink,
+  ChevronDown,
+  ChevronRight,
+  ArrowRight,
+  Code2,
+  Cpu,
 } from 'lucide-react';
-import { VerificationResult, Claim, FindingEvidence, UntouchedCaller } from '@/core/types';
+import type { VerificationResult, FindingEvidence } from '@/core/types';
 
 export default function Dashboard() {
   const [repoPath, setRepoPath] = useState('demo-repo');
@@ -30,13 +34,34 @@ export default function Dashboard() {
   const [settingDemo, setSettingDemo] = useState(false);
   const [result, setResult] = useState<VerificationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'claims' | 'untouched' | 'git' | 'raw'>('claims');
+  const [activeTab, setActiveTab] = useState<'claims' | 'dependencies' | 'untouched' | 'git' | 'raw'>('claims');
   const [selectedEvidence, setSelectedEvidence] = useState<FindingEvidence | null>(null);
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+  const [detectingClaim, setDetectingClaim] = useState(false);
 
   // Automatically run initial verification against demo repo on mount
   useEffect(() => {
     runVerification();
   }, []);
+
+  async function autoDetectClaim(targetRepo?: string, targetBase?: string) {
+    const r = targetRepo || repoPath;
+    const b = targetBase || baseRevision;
+    setDetectingClaim(true);
+    try {
+      const res = await fetch(`/api/repo-info?repo=${encodeURIComponent(r)}&base=${encodeURIComponent(b)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.suggestedClaim) {
+          setSummary(data.suggestedClaim);
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setDetectingClaim(false);
+    }
+  }
 
   async function runVerification(overrideSummary?: string, overrideBase?: string) {
     setLoading(true);
@@ -83,22 +108,25 @@ export default function Dashboard() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ scenario: 'incomplete' }),
         });
-        setSummary('Updated all callers of get_price to pass the currency.');
+        const newSummary = 'Updated all callers of get_price to pass the currency.';
+        setSummary(newSummary);
         setBaseRevision('HEAD~1');
-        await runVerification('Updated all callers of get_price to pass the currency.', 'HEAD~1');
+        await runVerification(newSummary, 'HEAD~1');
       } else if (scenario === 'complete') {
         await fetch('/api/demo', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ scenario: 'complete' }),
         });
-        setSummary('Updated all callers of get_price to pass the currency.');
+        const newSummary = 'Updated all callers of get_price to pass the currency.';
+        setSummary(newSummary);
         setBaseRevision('HEAD~1');
-        await runVerification('Updated all callers of get_price to pass the currency.', 'HEAD~1');
+        await runVerification(newSummary, 'HEAD~1');
       } else {
-        setSummary('No breaking changes.');
+        const newSummary = 'No breaking changes.';
+        setSummary(newSummary);
         setBaseRevision('HEAD~1');
-        await runVerification('No breaking changes.', 'HEAD~1');
+        await runVerification(newSummary, 'HEAD~1');
       }
     } catch (err: unknown) {
       const e = err as Error;
@@ -120,7 +148,7 @@ export default function Dashboard() {
             <div className="flex items-center space-x-2">
               <span className="font-bold text-lg tracking-tight">OffDiff</span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800 font-mono">
-                v0.1.0-mvp
+                v0.1.0
               </span>
             </div>
             <p className="text-xs text-slate-400">Verifying AI agent claims against real code diffs & Graphify AST</p>
@@ -136,7 +164,7 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
         {/* Quick Demo Pre-sets */}
         <div className="bg-[#161b22] border border-slate-800 rounded-xl p-4">
@@ -145,7 +173,7 @@ export default function Dashboard() {
               <Sparkles className="w-4 h-4 text-amber-400" />
               <span>Mandatory Demo Scenarios (One-Click Setup)</span>
             </div>
-            <span className="text-xs text-slate-400">Real git repositories created dynamically in demo-repo</span>
+            <span className="text-xs text-slate-400">Real git repository created dynamically in demo-repo</span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -156,7 +184,7 @@ export default function Dashboard() {
             >
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-semibold text-red-300 group-hover:text-red-200">
-                  1. Incomplete Refactor
+                  Load Incomplete Refactor Demo
                 </span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/80 text-red-200 font-mono">
                   CONTRADICTED
@@ -174,7 +202,7 @@ export default function Dashboard() {
             >
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-semibold text-emerald-300 group-hover:text-emerald-200">
-                  2. Complete Refactor
+                  Load Complete Refactor Demo
                 </span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/80 text-emerald-200 font-mono">
                   VERIFIED
@@ -192,10 +220,10 @@ export default function Dashboard() {
             >
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-semibold text-amber-300 group-hover:text-amber-200">
-                  3. Breaking Changes Check
+                  Load Breaking Changes Check
                 </span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/80 text-amber-200 font-mono">
-                  AT RISK
+                  AT RISK / AI
                 </span>
               </div>
               <p className="text-xs text-slate-400 line-clamp-2">
@@ -210,7 +238,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300 flex items-center space-x-2">
               <Search className="w-4 h-4 text-indigo-400" />
-              <span>Verify Completion Summary</span>
+              <span>Verification Input</span>
             </h2>
             <div className="flex items-center space-x-4 text-xs">
               <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
@@ -229,20 +257,20 @@ export default function Dashboard() {
                   onChange={e => setUseAi(e.target.checked)}
                   className="rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0"
                 />
-                <span>Enable AI (Gemini/Gemma)</span>
+                <span>Enable Gemma 4 AI</span>
               </label>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Repository Path</label>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Repository Path or GitHub URL</label>
               <input
                 type="text"
                 value={repoPath}
                 onChange={e => setRepoPath(e.target.value)}
                 className="w-full bg-[#0d1117] border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
-                placeholder="demo-repo"
+                placeholder="demo-repo or https://github.com/owner/repo"
               />
             </div>
 
@@ -279,15 +307,27 @@ export default function Dashboard() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1">
-              Coding Agent Completion Summary (Claims)
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-slate-400">
+                Coding Agent Completion Summary (Claims)
+              </label>
+              <button
+                type="button"
+                onClick={() => autoDetectClaim()}
+                disabled={detectingClaim}
+                className="text-xs text-indigo-300 hover:text-indigo-200 flex items-center space-x-1.5 font-mono py-1 px-2.5 rounded bg-indigo-950/80 border border-indigo-700/80 hover:bg-indigo-900/80 transition"
+                title="Inspect repository git commit and diff to generate claim"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>{detectingClaim ? 'Detecting from commit...' : '⚡ Auto-Detect Claim from Commit'}</span>
+              </button>
+            </div>
             <textarea
               rows={2}
               value={summary}
               onChange={e => setSummary(e.target.value)}
               className="w-full bg-[#0d1117] border border-slate-700 rounded-lg p-3 text-sm text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
-              placeholder="e.g. Updated all callers of get_price to pass the currency."
+              placeholder="e.g. feat: update callers of foo, or leave empty to auto-detect from repository commit"
             />
           </div>
 
@@ -299,10 +339,10 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Verification Result Banner & Stats */}
+        {/* Verification Result Banner & Suggested Action */}
         {result && (
           <div className="space-y-6">
-            {/* Overall Gate Status Banner */}
+            {/* Prominent Overall Verdict Banner */}
             <div
               className={`p-5 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
                 result.overallVerdict === 'PASSED'
@@ -332,6 +372,16 @@ export default function Dashboard() {
                   <p className="text-xs opacity-90 mt-1">
                     Compared working tree vs base revision <code className="font-mono underline">{result.baseRevision}</code> in <code className="font-mono">{result.repoPath}</code>
                   </p>
+                  {result.commitInfo?.subject && (
+                    <div className="mt-1.5 flex items-center space-x-2 text-xs">
+                      <span className="px-1.5 py-0.5 rounded bg-slate-900/60 border border-slate-700/60 font-mono text-[11px] text-slate-300">
+                        Commit: {result.commitInfo.subject}
+                      </span>
+                      {result.commitInfo.author && (
+                        <span className="text-slate-400 text-[11px]">by {result.commitInfo.author}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -341,7 +391,20 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Statistics Row */}
+            {/* Suggested Next Action Callout */}
+            {result.suggestedAction && (
+              <div className="bg-indigo-950/30 border border-indigo-900/60 rounded-xl p-4 flex items-start space-x-3">
+                <ArrowRight className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="text-xs font-semibold text-indigo-300 uppercase tracking-wider block">
+                    Suggested Next Action:
+                  </span>
+                  <p className="text-sm text-slate-200 mt-0.5 font-medium">{result.suggestedAction}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Metrics Overview Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <div className="bg-[#161b22] border border-slate-800 rounded-xl p-3.5">
                 <span className="text-xs text-slate-400 block mb-1">Total Claims</span>
@@ -365,7 +428,7 @@ export default function Dashboard() {
                     {result.stats.untouchedCallers}
                   </span>
                   {result.stats.untouchedCallers > 0 && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-950 text-red-400 border border-red-800">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-950 text-red-400 border border-red-800 font-mono">
                       MISSED
                     </span>
                   )}
@@ -373,13 +436,15 @@ export default function Dashboard() {
               </div>
 
               <div className="bg-[#161b22] border border-slate-800 rounded-xl p-3.5 col-span-2 sm:col-span-1">
-                <span className="text-xs text-slate-400 block mb-1">Graphify Knowledge Graph</span>
+                <span className="text-xs text-slate-400 block mb-1">Graphify AST Graph</span>
                 {result.graphify.executed ? (
                   <div>
-                    <span className="text-sm font-semibold text-emerald-400 flex items-center space-x-1">
-                      <span>{result.graphify.nodeCount} nodes, {result.graphify.edgeCount} edges</span>
+                    <span className="text-sm font-semibold text-emerald-400 block">
+                      {result.graphify.nodeCount} nodes, {result.graphify.edgeCount} edges
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono">AST extracted</span>
+                    <span className="text-[10px] text-slate-400 font-mono truncate block">
+                      {result.graphify.graphJsonPath || 'graph.json'}
+                    </span>
                   </div>
                 ) : (
                   <div>
@@ -390,7 +455,26 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Missed Callers Alert Callout (if any) */}
+            {/* Changed Functions Bar (if any) */}
+            {result.changedFunctions.length > 0 && (
+              <div className="bg-[#161b22] border border-slate-800 rounded-xl p-4">
+                <div className="flex items-center space-x-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  <Code2 className="w-4 h-4 text-indigo-400" />
+                  <span>Changed Functions Detected in Git Diff ({result.changedFunctions.length}):</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {result.changedFunctions.map((fn, idx) => (
+                    <div key={idx} className="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-mono">
+                      <span className="text-indigo-400 font-bold">{fn.name}()</span>
+                      <span className="text-slate-500 ml-2">at {fn.file}:{fn.line}</span>
+                      {fn.newSignature && <span className="text-emerald-400 ml-2">→ {fn.newSignature}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Missed Callers Alert Callout */}
             {result.untouchedCallers.length > 0 && (
               <div className="bg-red-950/20 border border-red-900 rounded-xl p-4">
                 <div className="flex items-center space-x-2 text-red-400 font-semibold text-sm mb-3">
@@ -438,6 +522,18 @@ export default function Dashboard() {
               >
                 <ShieldCheck className="w-4 h-4" />
                 <span>Claims & Evidence ({result.claims.length})</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('dependencies')}
+                className={`pb-3 text-sm font-medium transition border-b-2 flex items-center space-x-2 ${
+                  activeTab === 'dependencies'
+                    ? 'border-indigo-500 text-indigo-400'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                <span>Dependency Analysis ({result.dependencyRelationships.length})</span>
               </button>
 
               <button
@@ -609,7 +705,95 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Tab 2: Untouched Code */}
+            {/* Tab 2: Visible Dependency Analysis Section (Phase 3 requirement) */}
+            {activeTab === 'dependencies' && (
+              <div className="space-y-4">
+                <div className="bg-[#161b22] border border-slate-800 rounded-xl p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div className="flex items-center space-x-2">
+                      <Layers className="w-5 h-5 text-indigo-400" />
+                      <div>
+                        <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-200">
+                          Graphify Dependency Analysis
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Knowledge graph extracted via Tree-sitter AST parser
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-3 text-xs font-mono">
+                      <span className="bg-slate-900 border border-slate-700 px-2.5 py-1 rounded text-slate-300">
+                        {result.graphify.nodeCount || 0} nodes / {result.graphify.edgeCount || 0} edges
+                      </span>
+                      <span className={`px-2 py-0.5 rounded font-bold ${
+                        result.graphify.executed ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'
+                      }`}>
+                        {result.graphify.executed ? 'GRAPHIFY ACTIVE' : 'FALLBACK AST'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Coverage warnings if any */}
+                  {result.graphify.coverageWarning && (
+                    <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-800 text-amber-200 text-xs">
+                      {result.graphify.coverageWarning}
+                    </div>
+                  )}
+
+                  {/* Caller-callee relationships table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-900/80 text-slate-400 border-b border-slate-800">
+                        <tr>
+                          <th className="py-2.5 px-3">Caller Function</th>
+                          <th className="py-2.5 px-3">Target Callee</th>
+                          <th className="py-2.5 px-3">Relation</th>
+                          <th className="py-2.5 px-3">Source Location</th>
+                          <th className="py-2.5 px-3">Git Diff Status</th>
+                          <th className="py-2.5 px-3">Origin</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 font-mono">
+                        {result.dependencyRelationships.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-6 text-center text-slate-500">
+                              No caller-callee relationships detected in the analyzed scope.
+                            </td>
+                          </tr>
+                        ) : (
+                          result.dependencyRelationships.map((rel, idx) => (
+                            <tr key={idx} className="hover:bg-slate-900/50">
+                              <td className="py-2.5 px-3 font-semibold text-slate-200">{rel.caller}()</td>
+                              <td className="py-2.5 px-3 text-indigo-400">{rel.callee}()</td>
+                              <td className="py-2.5 px-3 text-slate-400">{rel.relation}</td>
+                              <td className="py-2.5 px-3 text-slate-400 underline">{rel.file}:{rel.line}</td>
+                              <td className="py-2.5 px-3">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  rel.status === 'CHANGED'
+                                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                                    : 'bg-red-950 text-red-300 border border-red-800'
+                                }`}>
+                                  {rel.status}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-[10px] text-slate-500 uppercase">{rel.source}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800">
+                    <span>Graph output location: <code className="text-slate-300">{result.graphify.graphJsonPath || 'demo-repo/graphify-out/graph.json'}</code></span>
+                    <span>Analyzed Revision: <code className="text-slate-300">{result.baseRevision} → {result.headRevision}</code></span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 3: Untouched Code */}
             {activeTab === 'untouched' && (
               <div className="space-y-3">
                 {result.untouchedCallers.length === 0 ? (
@@ -645,7 +829,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Tab 3: Git Changes */}
+            {/* Tab 4: Git Changes */}
             {activeTab === 'git' && (
               <div className="space-y-4">
                 {result.gitChanges.map((change, i) => (
@@ -676,7 +860,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Tab 4: Raw JSON */}
+            {/* Tab 5: Raw JSON */}
             {activeTab === 'raw' && (
               <div className="bg-[#161b22] border border-slate-800 rounded-xl p-4">
                 <pre className="text-xs font-mono text-slate-300 overflow-x-auto bg-[#0d1117] p-4 rounded-lg border border-slate-800 max-h-[600px]">
@@ -684,6 +868,49 @@ export default function Dashboard() {
                 </pre>
               </div>
             )}
+
+            {/* Expandable Technical Details Section */}
+            <div className="border border-slate-800 rounded-xl overflow-hidden bg-[#161b22]">
+              <button
+                onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
+                className="w-full px-5 py-3.5 flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider hover:bg-slate-900/60 transition"
+              >
+                <div className="flex items-center space-x-2">
+                  <Terminal className="w-4 h-4 text-indigo-400" />
+                  <span>Technical Diagnostics & Engine Metadata</span>
+                </div>
+                {showTechnicalDetails ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
+              </button>
+
+              {showTechnicalDetails && (
+                <div className="p-5 border-t border-slate-800 space-y-4 text-xs font-mono text-slate-300 bg-[#0d1117]">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 space-y-1">
+                      <span className="text-slate-500 font-bold block mb-1">Graphify Execution:</span>
+                      <div>CLI Command: <code>python -m graphify</code></div>
+                      <div>Exit Code: <code>{result.graphify.exitCode ?? 0}</code></div>
+                      <div>Graph Output: <code>{result.graphify.graphJsonPath || 'None'}</code></div>
+                      {result.graphify.stdout && (
+                        <div className="mt-2 text-[11px] text-slate-400 whitespace-pre-wrap">
+                          Stdout: {result.graphify.stdout}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 space-y-1">
+                      <span className="text-slate-500 font-bold block mb-1">AI Engine Status:</span>
+                      <div>Used: <code>{result.aiStatus.used ? 'true' : 'false'}</code></div>
+                      <div>Model: <code>{result.aiStatus.model || 'gemma-4-26b-a4b-it'}</code></div>
+                      <div>Notes: <code>{result.aiStatus.notes}</code></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>
@@ -693,10 +920,9 @@ export default function Dashboard() {
         <span>OffDiff — Deterministic AST Graph & Evidence-Based Verification</span>
         <div className="flex items-center space-x-4">
           <span>Powered by Tree-sitter & Graphify</span>
-          <span>Google GenAI SDK (Optional)</span>
+          <span>Google GenAI / Gemma 4</span>
         </div>
       </footer>
     </div>
   );
 }
-

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import path from 'node:path';
 import { OffDiffEngine } from '@/core/engine';
 import { VerificationRequestSchema } from '@/core/types';
+import { isRemoteGitUrl } from '@/core/git';
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,7 +17,9 @@ export async function POST(req: NextRequest) {
     }
 
     const { repoPath, baseRevision, summary, strict, useAi } = parseResult.data;
-    const resolvedRepo = path.isAbsolute(repoPath)
+    const resolvedRepo = isRemoteGitUrl(repoPath)
+      ? repoPath
+      : path.isAbsolute(repoPath)
       ? repoPath
       : path.resolve(process.cwd(), repoPath);
 

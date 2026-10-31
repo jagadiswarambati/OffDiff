@@ -2,7 +2,7 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import fs from 'node:fs';
-import { GraphifyStatus } from './types';
+import { GraphifyStatus, DependencyRelationship } from './types';
 
 const execAsync = promisify(exec);
 
@@ -82,6 +82,7 @@ export class GraphifyService {
         status: {
           available: false,
           executed: false,
+          exitCode: 1,
           error: availability.error || 'Graphify is not installed or available in PATH',
           coverageWarning: 'Graphify code knowledge graph unavailable. Analysis falls back to AST / syntax scan with partial dependency coverage.',
         },
@@ -93,8 +94,7 @@ export class GraphifyService {
     const graphJsonPath = path.join(graphifyOutDir, 'graph.json');
 
     try {
-      // Execute graphify update --no-cluster
-      await execAsync(`${this.cmd} update "${absRepoPath}" --no-cluster`, {
+      const { stdout, stderr } = await execAsync(`${this.cmd} update "${absRepoPath}" --no-cluster`, {
         cwd: absRepoPath,
         timeout: 45000,
         env: { ...process.env, GRAPHIFY_FORCE: '1' },
@@ -105,8 +105,11 @@ export class GraphifyService {
           status: {
             available: true,
             executed: false,
-            error: `Graphify succeeded but did not produce expected output at ${graphJsonPath}`,
-            coverageWarning: 'graph.json missing after execution. Partial coverage only.',
+            exitCode: 1,
+            stdout: stdout.trim(),
+            stderr: stderr.trim(),
+            error: `Graphify executed but graph.json was not created at ${graphJsonPath}`,
+            coverageWarning: 'graph.json missing after execution. Incomplete graph coverage.',
           },
         };
       }
@@ -119,6 +122,10 @@ export class GraphifyService {
           available: true,
           version: availability.version,
           executed: true,
+          exitCode: 0,
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          graphJsonPath: path.relative(process.cwd(), graphJsonPath).replace(/\\/g, '/'),
           nodeCount: graphData.nodes?.length || 0,
           edgeCount: graphData.links?.length || 0,
         },
@@ -126,16 +133,61 @@ export class GraphifyService {
         outDir: graphifyOutDir,
       };
     } catch (err: unknown) {
-      const error = err as Error;
+      const error = err as Error & { code?: number; stdout?: string; stderr?: string };
       return {
         status: {
           available: true,
           executed: false,
+          exitCode: error.code || 1,
+          stdout: error.stdout?.trim(),
+          stderr: error.stderr?.trim(),
           error: `Graphify execution error: ${error.message}`,
           coverageWarning: 'Graphify extraction interrupted or failed. Incomplete dependency coverage.',
         },
       };
     }
+  }
+
+  /**
+   * Parse graph data to extract all dependency relationships
+   */
+  extractRelationships(
+    graphData: GraphifyGraphData,
+    modifiedLinesByFile: Map<string, Set<number>>
+  ): DependencyRelationship[] {
+    const relationships: DependencyRelationship[] = [];
+
+    for (const link of graphData.links) {
+      if (link.relation === 'calls' || link.relation === 'references' || link.relation === 'indirect_call') {
+        const callerNode = graphData.nodes.find(n => n.id === link.source);
+        const targetNode = graphData.nodes.find(n => n.id === link.target);
+
+        let line = 1;
+        if (link.source_location) {
+          const m = link.source_location.match(/L(\d+)/i);
+          if (m) line = parseInt(m[1], 10);
+        }
+
+        const callerLabel = (callerNode?.label || link.source).replace(/\(\)$/, '');
+        const targetLabel = (targetNode?.label || link.target).replace(/\(\)$/, '');
+        const relFile = (link.source_file || callerNode?.source_file || '').replace(/\\/g, '/');
+
+        const modLines = modifiedLinesByFile.get(relFile);
+        const isChanged = modLines ? (modLines.has(line) || modLines.has(line - 1) || modLines.has(line + 1)) : false;
+
+        relationships.push({
+          caller: callerLabel,
+          callee: targetLabel,
+          relation: link.relation,
+          file: relFile,
+          line,
+          status: isChanged ? 'CHANGED' : 'UNCHANGED',
+          source: 'graphify',
+        });
+      }
+    }
+
+    return relationships;
   }
 
   /**
@@ -192,4 +244,3 @@ export class GraphifyService {
     return results;
   }
 }
-

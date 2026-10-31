@@ -6,7 +6,7 @@ export const ClaimVerdictSchema = z.enum([
   'CONTRADICTED',
   'VERIFIED',
   'AT RISK',
-  'UNVERIFIABLE'
+  'UNVERIFIABLE',
 ]);
 export type ClaimVerdict = z.infer<typeof ClaimVerdictSchema>;
 
@@ -32,7 +32,7 @@ export const ClaimTypeSchema = z.enum([
   'reference_removed',
   'no_breaking_changes',
   'signature_change',
-  'general'
+  'general',
 ]);
 export type ClaimType = z.infer<typeof ClaimTypeSchema>;
 
@@ -58,6 +58,27 @@ export const UntouchedCallerSchema = z.object({
 });
 export type UntouchedCaller = z.infer<typeof UntouchedCallerSchema>;
 
+export const ChangedFunctionSchema = z.object({
+  name: z.string(),
+  file: z.string(),
+  line: z.number(),
+  oldSignature: z.string().optional(),
+  newSignature: z.string().optional(),
+  snippet: z.string(),
+});
+export type ChangedFunction = z.infer<typeof ChangedFunctionSchema>;
+
+export const DependencyRelationshipSchema = z.object({
+  caller: z.string(),
+  callee: z.string(),
+  relation: z.string(),
+  file: z.string(),
+  line: z.number(),
+  status: z.enum(['CHANGED', 'UNCHANGED']),
+  source: z.enum(['graphify', 'ast_fallback']),
+});
+export type DependencyRelationship = z.infer<typeof DependencyRelationshipSchema>;
+
 export const DiffHunkSchema = z.object({
   oldStart: z.number(),
   oldLines: z.number(),
@@ -81,6 +102,10 @@ export const GraphifyStatusSchema = z.object({
   available: z.boolean(),
   version: z.string().optional(),
   executed: z.boolean(),
+  exitCode: z.number().optional(),
+  stdout: z.string().optional(),
+  stderr: z.string().optional(),
+  graphJsonPath: z.string().optional(),
   nodeCount: z.number().optional(),
   edgeCount: z.number().optional(),
   error: z.string().optional(),
@@ -91,11 +116,12 @@ export type GraphifyStatus = z.infer<typeof GraphifyStatusSchema>;
 export const VerificationRequestSchema = z.object({
   repoPath: z.string().min(1, 'Repository path is required'),
   baseRevision: z.string().default('HEAD~1'),
-  summary: z.string().min(1, 'Summary of claims is required'),
+  summary: z.string().optional().default(''),
   strict: z.boolean().default(false),
   useAi: z.boolean().default(false),
 });
-export type VerificationRequest = z.infer<typeof VerificationRequestSchema>;
+export type VerificationRequest = z.input<typeof VerificationRequestSchema>;
+export type ParsedVerificationRequest = z.infer<typeof VerificationRequestSchema>;
 
 export const VerificationResultSchema = z.object({
   id: z.string(),
@@ -104,8 +130,17 @@ export const VerificationResultSchema = z.object({
   baseRevision: z.string(),
   headRevision: z.string(),
   summary: z.string(),
+  commitInfo: z.object({
+    subject: z.string().optional(),
+    message: z.string().optional(),
+    author: z.string().optional(),
+    date: z.string().optional(),
+  }).optional(),
   overallVerdict: z.enum(['PASSED', 'FAILED', 'WARNING']),
   strict: z.boolean(),
+  suggestedAction: z.string(),
+  changedFunctions: z.array(ChangedFunctionSchema),
+  dependencyRelationships: z.array(DependencyRelationshipSchema),
   claims: z.array(ClaimSchema),
   findings: z.array(FindingEvidenceSchema),
   untouchedCallers: z.array(UntouchedCallerSchema),
@@ -125,4 +160,3 @@ export const VerificationResultSchema = z.object({
   }),
 });
 export type VerificationResult = z.infer<typeof VerificationResultSchema>;
-

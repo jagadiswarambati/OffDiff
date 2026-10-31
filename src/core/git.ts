@@ -10,6 +10,10 @@ export interface GitInspectionResult {
   repoPath: string;
   baseRevision: string;
   headRevision: string;
+  commitSubject?: string;
+  commitMessage?: string;
+  commitAuthor?: string;
+  commitDate?: string;
   changes: GitFileChange[];
   modifiedFiles: string[];
   addedFiles: string[];
@@ -33,15 +37,91 @@ export async function runGit(args: string[], cwd: string): Promise<string> {
   }
 }
 
+export function isRemoteGitUrl(input: string): boolean {
+  if (!input || typeof input !== 'string') return false;
+  const trimmed = input.trim();
+  if (path.isAbsolute(trimmed) || trimmed.startsWith('.' + path.sep) || trimmed.startsWith('./') || trimmed.startsWith('.\\')) {
+    return false;
+  }
+  return /^(https?:\/\/|git@|github\.com\/)/i.test(trimmed) || (trimmed.endsWith('.git') && !fs.existsSync(trimmed));
+}
+
+export function normalizeGitUrl(input: string): string {
+  const trimmed = input.trim();
+  if (/^github\.com\//i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return trimmed;
+}
+
+export async function ensureRepositoryPath(repoPathOrUrl: string): Promise<string> {
+  const trimmed = repoPathOrUrl.trim();
+  if (!isRemoteGitUrl(trimmed)) {
+    const resolvedPath = path.resolve(trimmed);
+    if (!fs.existsSync(resolvedPath)) {
+      throw new Error(`Directory does not exist: ${resolvedPath}`);
+    }
+    return resolvedPath;
+  }
+
+  const normalizedUrl = normalizeGitUrl(trimmed);
+  const cacheBase = path.resolve(process.cwd(), '.offdiff-cache', 'repos');
+  if (!fs.existsSync(cacheBase)) {
+    fs.mkdirSync(cacheBase, { recursive: true });
+  }
+
+  const safeName = normalizedUrl
+    .replace(/^https?:\/\//i, '')
+    .replace(/^git@/i, '')
+    .replace(/\.git$/i, '')
+    .replace(/[^a-zA-Z0-9_.-]/g, '_');
+
+  const targetDir = path.join(cacheBase, safeName);
+
+  if (fs.existsSync(targetDir)) {
+    try {
+      const isRepo = await runGit(['rev-parse', '--is-inside-work-tree'], targetDir);
+      if (isRepo === 'true') {
+        try {
+          await runGit(['fetch', '--all'], targetDir);
+        } catch {
+          // If offline or fetch fails, existing clone is still usable
+        }
+        return targetDir;
+      }
+    } catch {
+      try {
+        fs.rmSync(targetDir, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  try {
+    await execFileAsync('git', ['clone', normalizedUrl, targetDir], {
+      maxBuffer: 20 * 1024 * 1024,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+  } catch (err: unknown) {
+    const error = err as Error & { stderr?: string };
+    const stderr = error.stderr?.trim() || error.message;
+    if (stderr.includes('Repository not found') || stderr.includes('not found')) {
+      throw new Error(
+        `Failed to clone GitHub repository '${normalizedUrl}': Repository not found or private. Please check that the URL is spelled correctly and the repository is publicly accessible.`
+      );
+    }
+    throw new Error(`Failed to clone remote repository '${normalizedUrl}': ${stderr}`);
+  }
+
+  return targetDir;
+}
+
 export async function inspectGitRepository(
   repoPath: string,
   baseRevision: string = 'HEAD~1'
 ): Promise<GitInspectionResult> {
-  const resolvedPath = path.resolve(repoPath);
-
-  if (!fs.existsSync(resolvedPath)) {
-    throw new Error(`Directory does not exist: ${resolvedPath}`);
-  }
+  const resolvedPath = await ensureRepositoryPath(repoPath);
 
   // Check if it's a git repo
   try {
@@ -56,18 +136,22 @@ export async function inspectGitRepository(
   // Resolve base revision commit hash
   let baseHash: string;
   try {
-    baseHash = await runGit(['rev-parse', '--verify', baseRevision], resolvedPath);
+    baseHash = await runGit(['rev-parse', '--verify', `${baseRevision}^{commit}`], resolvedPath);
   } catch {
-    // If base revision doesn't exist (e.g. initial commit HEAD~1), check git rev-list
-    try {
-      const commits = await runGit(['rev-list', '--max-parents=0', 'HEAD'], resolvedPath);
-      const rootCommit = commits.split('\n')[0];
-      if (rootCommit) {
-        baseHash = rootCommit;
-      } else {
-        throw new Error(`Cannot resolve base revision '${baseRevision}'`);
+    // If default HEAD~1 was requested on a repository with only one commit, fallback to root commit
+    if (baseRevision === 'HEAD~1') {
+      try {
+        const commits = await runGit(['rev-list', '--max-parents=0', 'HEAD'], resolvedPath);
+        const rootCommit = commits.split('\n')[0];
+        if (rootCommit) {
+          baseHash = rootCommit;
+        } else {
+          throw new Error(`Cannot resolve base revision '${baseRevision}'`);
+        }
+      } catch {
+        throw new Error(`Invalid base revision: '${baseRevision}'`);
       }
-    } catch {
+    } else {
       throw new Error(`Invalid base revision: '${baseRevision}'`);
     }
   }
@@ -105,6 +189,20 @@ export async function inspectGitRepository(
   // Parse diff into structured files and hunks
   const changes = parseGitDiff(rawDiff, untrackedFiles);
 
+  // Extract latest commit info for context
+  let commitSubject = '';
+  let commitMessage = '';
+  let commitAuthor = '';
+  let commitDate = '';
+  try {
+    commitSubject = await runGit(['log', '-1', '--pretty=%s', 'HEAD'], resolvedPath);
+    commitMessage = await runGit(['log', '-1', '--pretty=%B', 'HEAD'], resolvedPath);
+    commitAuthor = await runGit(['log', '-1', '--pretty=%an', 'HEAD'], resolvedPath);
+    commitDate = await runGit(['log', '-1', '--pretty=%cd', 'HEAD'], resolvedPath);
+  } catch {
+    // ignore if empty or detached
+  }
+
   const modifiedFiles = changes.filter(c => c.status === 'modified').map(c => c.path);
   const addedFiles = changes.filter(c => c.status === 'added').map(c => c.path);
   const deletedFiles = changes.filter(c => c.status === 'deleted').map(c => c.path);
@@ -113,6 +211,10 @@ export async function inspectGitRepository(
     repoPath: resolvedPath,
     baseRevision: baseHash.slice(0, 8),
     headRevision: headHash.slice(0, 8),
+    commitSubject: commitSubject.trim(),
+    commitMessage: commitMessage.trim(),
+    commitAuthor: commitAuthor.trim(),
+    commitDate: commitDate.trim(),
     changes,
     modifiedFiles,
     addedFiles,

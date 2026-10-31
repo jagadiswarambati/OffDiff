@@ -5,6 +5,7 @@ build/
 dist/
 scratch/
 graphify-out/
+.offdiff-cache/
 .env.local
 .env.*.local
 *.log

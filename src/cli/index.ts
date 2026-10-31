@@ -3,6 +3,7 @@ import pc from 'picocolors';
 import path from 'node:path';
 import { OffDiffEngine } from '../core/engine';
 import { VerificationResult } from '../core/types';
+import { isRemoteGitUrl } from '../core/git';
 
 export function createCli(): Command {
   const program = new Command();
@@ -25,10 +26,13 @@ export function createCli(): Command {
       try {
         if (!options.summary) {
           console.error(pc.red('Error: --summary <text> is required.'));
-          process.exit(1);
+          process.exitCode = 1;
+          return;
         }
 
-        const repoPath = path.resolve(options.repo);
+        const repoPath = isRemoteGitUrl(options.repo)
+          ? options.repo
+          : path.resolve(options.repo);
         const engine = new OffDiffEngine();
 
         if (!options.json) {
@@ -54,14 +58,16 @@ export function createCli(): Command {
 
         // Determine exit code
         if (result.overallVerdict === 'FAILED') {
-          process.exit(1);
+          process.exitCode = 1;
+          return;
         }
         if (options.strict && result.overallVerdict === 'WARNING') {
           console.error(pc.red('\n[Strict Mode] Analysis completed with warnings or incomplete coverage. Exiting with error.'));
-          process.exit(2);
+          process.exitCode = 2;
+          return;
         }
 
-        process.exit(0);
+        process.exitCode = 0;
       } catch (err: unknown) {
         const error = err as Error;
         if (options.json) {
@@ -69,7 +75,7 @@ export function createCli(): Command {
         } else {
           console.error(pc.red(`\n❌ Error during verification: ${error.message}`));
         }
-        process.exit(1);
+        process.exitCode = 1;
       }
     });
 
@@ -79,9 +85,26 @@ export function createCli(): Command {
 function printCliReport(result: VerificationResult) {
   // Graphify status banner
   if (result.graphify.executed) {
-    console.log(pc.green(`✔ Graphify AST Graph: ${result.graphify.nodeCount} nodes, ${result.graphify.edgeCount} edges`));
+    console.log(pc.green(`✔ Graphify AST Graph: ${result.graphify.nodeCount} nodes, ${result.graphify.edgeCount} edges (${result.graphify.graphJsonPath || 'graph.json'})`));
   } else {
     console.log(pc.yellow(`⚠ Graphify Notice: ${result.graphify.coverageWarning || result.graphify.error}`));
+  }
+
+  // Changed functions section
+  if (result.changedFunctions.length > 0) {
+    console.log(pc.bold('\n--- Changed Functions in Git Diff ---'));
+    for (const fn of result.changedFunctions) {
+      console.log(`  • ${pc.cyan(fn.name)} at ${fn.file}:${fn.line} ${fn.newSignature ? pc.dim(`→ ${fn.newSignature}`) : ''}`);
+    }
+  }
+
+  // Dependency graph caller relationships
+  if (result.dependencyRelationships.length > 0) {
+    console.log(pc.bold('\n--- Dependency Graph Call Sites ---'));
+    for (const dep of result.dependencyRelationships) {
+      const statusPill = dep.status === 'CHANGED' ? pc.green(' [CHANGED] ') : pc.red(' [UNCHANGED] ');
+      console.log(`  • ${statusPill} ${pc.bold(dep.caller)}() calls ${pc.cyan(dep.callee)} at ${dep.file}:${dep.line}`);
+    }
   }
 
   // Summary stats
@@ -119,6 +142,11 @@ function printCliReport(result: VerificationResult) {
       console.log(pc.red(`  • Function '${u.caller}' calls '${u.symbol}' at ${u.file}:${u.line}`));
       console.log(pc.dim(`    Evidence: ${u.snippet.replace(/\n/g, ' ')}`));
     }
+  }
+
+  if (result.suggestedAction) {
+    console.log(pc.bold('\n💡 Suggested Action:'));
+    console.log(`   ${pc.yellow(result.suggestedAction)}`);
   }
 
   // Overall Gate Verdict

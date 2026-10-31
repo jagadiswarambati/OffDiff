@@ -60,7 +60,7 @@ export class MissedCallerDetector {
           const snippet = lines.slice(start, end).join('\n');
 
           const modLines = modifiedLinesByFile.get(normFile);
-          const isModified = modLines ? modLines.has(ref.line) : false;
+          const isModified = modLines ? (modLines.has(ref.line) || modLines.has(ref.line - 1) || modLines.has(ref.line + 1)) : false;
 
           const callerName = ref.callerLabel.replace(/\(\)$/, '');
 

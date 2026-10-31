@@ -225,8 +225,32 @@ export class ClaimVerifier {
           validated: this.validateSnippet(primaryUpdated.file, primaryUpdated.line, primaryUpdated.snippet),
         });
       } else {
-        status = 'VERIFIED';
-        explanation = `Verified: No callers of '${target}' exist in the codebase.`;
+        status = 'UNVERIFIABLE';
+        explanation = `Unverifiable: No callers of '${target}' found in the codebase to evaluate claim.`;
+      }
+
+      // If AI investigation is enabled, also invoke Gemma 4 to investigate caller updates
+      if (useAi && this.aiService.isConfigured()) {
+        const aiResult = await this.aiService.investigateClaim(
+          claimRaw.rawText,
+          this.gitChanges,
+          this.repoPath
+        );
+        if (aiResult.file && aiResult.line && aiResult.evidenceSnippet) {
+          findings.push({
+            id: `ev-${claimId}-${findings.length + 1}`,
+            claimText: claimRaw.rawText,
+            verdict: aiResult.verdict,
+            filePath: aiResult.file,
+            lineNumber: aiResult.line,
+            snippet: aiResult.evidenceSnippet,
+            targetSymbol: target,
+            explanation: `[Gemma 4 Investigation] ${aiResult.explanation}`,
+            source: 'ai',
+            confidence: aiResult.confidence,
+            validated: this.validateSnippet(aiResult.file, aiResult.line, aiResult.evidenceSnippet),
+          });
+        }
       }
     } else if (claimRaw.type === 'reference_removed' && claimRaw.targetSymbol) {
       const target = claimRaw.targetSymbol;
@@ -252,8 +276,41 @@ export class ClaimVerifier {
           });
         }
       } else {
-        status = 'VERIFIED';
-        explanation = `Verified: All references to '${target}' have been removed from the repository.`;
+        // Verify git diff actually contains changes/deletions mentioning the target
+        const diffMentionsTarget = this.gitChanges.some(c =>
+          c.diffHunks.some(h => h.content.includes(target))
+        );
+
+        if (diffMentionsTarget) {
+          status = 'VERIFIED';
+          explanation = `Verified: References to '${target}' were deleted in git diff and zero references remain in the working tree.`;
+        } else {
+          status = 'UNVERIFIABLE';
+          explanation = `Unverifiable: Symbol '${target}' does not appear in git changes. Cannot verify removal.`;
+        }
+      }
+
+      if (useAi && this.aiService.isConfigured()) {
+        const aiResult = await this.aiService.investigateClaim(
+          claimRaw.rawText,
+          this.gitChanges,
+          this.repoPath
+        );
+        if (aiResult.file && aiResult.line && aiResult.evidenceSnippet) {
+          findings.push({
+            id: `ev-${claimId}-${findings.length + 1}`,
+            claimText: claimRaw.rawText,
+            verdict: aiResult.verdict,
+            filePath: aiResult.file,
+            lineNumber: aiResult.line,
+            snippet: aiResult.evidenceSnippet,
+            targetSymbol: target,
+            explanation: `[Gemma 4 Investigation] ${aiResult.explanation}`,
+            source: 'ai',
+            confidence: aiResult.confidence,
+            validated: this.validateSnippet(aiResult.file, aiResult.line, aiResult.evidenceSnippet),
+          });
+        }
       }
     } else if (claimRaw.type === 'no_breaking_changes') {
       // Deterministic check: check if any function signature in git changes added parameters
