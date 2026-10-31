@@ -1,0 +1,210 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { GitFileChange, UntouchedCaller } from './types';
+import { GraphifyGraphData, GraphifyService } from './graphify';
+
+export interface CallerCallSite {
+  symbol: string;
+  caller: string;
+  file: string;
+  line: number;
+  snippet: string;
+  callArgs: string;
+  isModifiedInGit: boolean;
+  status: 'UNTOUCHED' | 'UPDATED' | 'UNKNOWN';
+}
+
+export class MissedCallerDetector {
+  private repoPath: string;
+  private gitChanges: GitFileChange[];
+  private graphService: GraphifyService;
+
+  constructor(repoPath: string, gitChanges: GitFileChange[], graphService?: GraphifyService) {
+    this.repoPath = path.resolve(repoPath);
+    this.gitChanges = gitChanges;
+    this.graphService = graphService || new GraphifyService();
+  }
+
+  /**
+   * Find all callers of a target symbol across the repository and determine if they were updated or untouched
+   */
+  async detectCallers(targetSymbol: string, graphData?: GraphifyGraphData): Promise<CallerCallSite[]> {
+    const callSites: CallerCallSite[] = [];
+    const cleanSymbol = targetSymbol.replace(/\(\)$/, '').trim();
+    if (!cleanSymbol) return [];
+
+    // Map of modified lines per relative file path
+    const modifiedLinesByFile = new Map<string, Set<number>>();
+    for (const change of this.gitChanges) {
+      const normPath = this.normalizeRelPath(change.path);
+      const lineSet = new Set(change.modifiedLines);
+      modifiedLinesByFile.set(normPath, lineSet);
+    }
+
+    // 1. If Graphify graph data is available, collect Graphify references
+    if (graphData) {
+      const graphCallers = this.graphService.findCallersInGraph(graphData, cleanSymbol);
+      for (const ref of graphCallers) {
+        const normFile = this.normalizeRelPath(ref.sourceFile);
+        const absFile = path.resolve(this.repoPath, normFile);
+
+        if (fs.existsSync(absFile)) {
+          const content = fs.readFileSync(absFile, 'utf8');
+          const lines = content.split('\n');
+          const lineIdx = Math.max(0, ref.line - 1);
+          const lineText = lines[lineIdx] || '';
+
+          // Extract snippet (3 lines context)
+          const start = Math.max(0, lineIdx - 1);
+          const end = Math.min(lines.length, lineIdx + 2);
+          const snippet = lines.slice(start, end).join('\n');
+
+          const modLines = modifiedLinesByFile.get(normFile);
+          const isModified = modLines ? modLines.has(ref.line) : false;
+
+          const callerName = ref.callerLabel.replace(/\(\)$/, '');
+
+          callSites.push({
+            symbol: cleanSymbol,
+            caller: callerName,
+            file: normFile,
+            line: ref.line,
+            snippet,
+            callArgs: this.extractArgsFromLine(lineText, cleanSymbol),
+            isModifiedInGit: isModified,
+            status: isModified ? 'UPDATED' : 'UNTOUCHED',
+          });
+        }
+      }
+    }
+
+    // 2. Comprehensive source file scan (Python, JS, TS, etc.)
+    // Ensures zero missed callers even if Graphify has partial extraction
+    const scannedFiles = this.findSourceFiles(this.repoPath);
+    for (const relFile of scannedFiles) {
+      const absFile = path.join(this.repoPath, relFile);
+      if (!fs.existsSync(absFile)) continue;
+
+      const normRelFile = this.normalizeRelPath(relFile);
+      const content = fs.readFileSync(absFile, 'utf8');
+      const lines = content.split('\n');
+
+      const pattern = new RegExp(`\\b${escapeRegExp(cleanSymbol)}\\s*\\(([^)]*)\\)`, 'g');
+
+      let currentFunction = 'global';
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const lineNum = i + 1;
+
+        // Detect enclosing function in Python or JS/TS
+        const pyFnMatch = line.match(/^\s*(?:async\s+)?def\s+([a-zA-Z0-9_]+)\s*\(/);
+        const jsFnMatch = line.match(/^\s*(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z0-9_]+)\s*\(/) ||
+                          line.match(/^\s*(?:const|let|var)\s+([a-zA-Z0-9_]+)\s*=\s*(?:async\s*)?\(/);
+
+        if (pyFnMatch) {
+          currentFunction = pyFnMatch[1];
+        } else if (jsFnMatch) {
+          currentFunction = jsFnMatch[1];
+        }
+
+        // Check if this line is the definition itself
+        if (
+          line.match(new RegExp(`def\\s+${escapeRegExp(cleanSymbol)}\\b`)) ||
+          line.match(new RegExp(`function\\s+${escapeRegExp(cleanSymbol)}\\b`))
+        ) {
+          continue; // Skip the function definition itself
+        }
+
+        pattern.lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(line)) !== null) {
+          // Check if already captured by graphify
+          const exists = callSites.some(
+            c => c.file === normRelFile && Math.abs(c.line - lineNum) <= 1
+          );
+
+          if (!exists) {
+            const start = Math.max(0, i - 1);
+            const end = Math.min(lines.length, i + 2);
+            const snippet = lines.slice(start, end).join('\n');
+
+            const modLines = modifiedLinesByFile.get(normRelFile);
+            // Consider modified if this line or the enclosing hunk was changed in git
+            const isModified = modLines ? (modLines.has(lineNum) || modLines.has(lineNum - 1) || modLines.has(lineNum + 1)) : false;
+
+            callSites.push({
+              symbol: cleanSymbol,
+              caller: currentFunction,
+              file: normRelFile,
+              line: lineNum,
+              snippet,
+              callArgs: match[1]?.trim() || '',
+              isModifiedInGit: isModified,
+              status: isModified ? 'UPDATED' : 'UNTOUCHED',
+            });
+          }
+        }
+      }
+    }
+
+    return callSites;
+  }
+
+  /**
+   * Filter and return callers that remain UNTOUCHED
+   */
+  async getUntouchedCallers(targetSymbol: string, graphData?: GraphifyGraphData): Promise<UntouchedCaller[]> {
+    const allSites = await this.detectCallers(targetSymbol, graphData);
+    const untouched = allSites.filter(site => site.status === 'UNTOUCHED');
+
+    return untouched.map(u => ({
+      symbol: u.symbol,
+      caller: u.caller,
+      file: u.file,
+      line: u.line,
+      snippet: u.snippet,
+      isModified: u.isModifiedInGit,
+      status: 'UNTOUCHED',
+    }));
+  }
+
+  private extractArgsFromLine(line: string, symbol: string): string {
+    const regex = new RegExp(`\\b${escapeRegExp(symbol)}\\s*\\(([^)]*)\\)`);
+    const match = line.match(regex);
+    return match ? match[1].trim() : '';
+  }
+
+  private normalizeRelPath(p: string): string {
+    let clean = p.replace(/\\/g, '/');
+    if (path.isAbsolute(clean)) {
+      clean = path.relative(this.repoPath, clean).replace(/\\/g, '/');
+    }
+    return clean.replace(/^\.\//, '');
+  }
+
+  private findSourceFiles(dir: string, baseDir: string = dir): string[] {
+    const files: string[] = [];
+    const validExts = new Set(['.py', '.js', '.jsx', '.ts', '.tsx', '.go', '.rs', '.java']);
+    const ignoreDirs = new Set(['.git', 'node_modules', '.next', 'dist', 'graphify-out', '__pycache__', '.venv']);
+
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!ignoreDirs.has(entry.name)) {
+          files.push(...this.findSourceFiles(path.join(dir, entry.name), baseDir));
+        }
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (validExts.has(ext)) {
+          files.push(path.relative(baseDir, path.join(dir, entry.name)));
+        }
+      }
+    }
+    return files;
+  }
+}
+
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
