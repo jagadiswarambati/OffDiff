@@ -1,7 +1,15 @@
+/**
+ * @file globals.css
+ * @description Global CSS styles and design system variables for OffDiff.
+ * Imports Tailwind base, components, and utilities layers, and establishes
+ * root CSS variables for the dark developer dashboard theme.
+ */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Root theme variables for dark developer environment */
 :root {
   --background: #0d1117;
   --foreground: #f0f6fc;

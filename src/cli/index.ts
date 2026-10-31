@@ -92,6 +92,13 @@ export function createCli(): Command {
   return program;
 }
 
+/**
+ * Formats and prints a structured, colored console report of the verification result.
+ * Displays Graphify AST status, modified functions, dependency call sites, claims & verdicts,
+ * untouched code snippets, and final gate status banner.
+ *
+ * @param result VerificationResult returned by OffDiffEngine
+ */
 function printCliReport(result: VerificationResult) {
   // Graphify status banner
   if (result.graphify.executed) {
@@ -171,6 +178,12 @@ function printCliReport(result: VerificationResult) {
   console.log(pc.bold('========================================\n'));
 }
 
+/**
+ * Generates an ANSI terminal background badge for a given ClaimVerdict.
+ *
+ * @param verdict Verdict string (e.g. 'VERIFIED', 'CONTRADICTED', 'AT RISK')
+ * @returns Colored terminal badge string
+ */
 function formatVerdictBadge(verdict: string): string {
   switch (verdict) {
     case 'VERIFIED':
