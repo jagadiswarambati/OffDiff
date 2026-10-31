@@ -1,3 +1,15 @@
+/**
+ * @file engine.ts
+ * @description Central orchestration engine for OffDiff.
+ * Coordinates the full verification pipeline:
+ * 1. Git repository inspection & diff parsing
+ * 2. Tree-sitter Graphify code knowledge graph generation
+ * 3. Changed function & signature detection across multiple programming languages
+ * 4. AST missed-caller detection & call site mapping
+ * 5. Claim verification with optional Gemma 4 semantic investigation
+ * 6. Verdict calculation & actionable next steps generation
+ */
+
 import path from 'node:path';
 import fs from 'node:fs';
 import { inspectGitRepository } from './git';
@@ -14,15 +26,28 @@ import {
   DependencyRelationship,
 } from './types';
 
+/**
+ * Main verification engine orchestrating deterministic and AI checks.
+ */
 export class OffDiffEngine {
   private graphService: GraphifyService;
   private aiService: AIService;
 
+  /**
+   * Initializes the engine with optional custom Graphify command override.
+   * @param graphCmd Custom CLI command to invoke Graphify
+   */
   constructor(graphCmd?: string) {
     this.graphService = new GraphifyService(graphCmd);
     this.aiService = new AIService();
   }
 
+  /**
+   * Runs the complete verification pipeline for a repository and completion claim.
+   *
+   * @param rawRequest Raw or partially specified VerificationRequest object
+   * @returns Comprehensive VerificationResult matching VerificationResultSchema
+   */
   async runVerification(rawRequest: VerificationRequest): Promise<VerificationResult> {
     const request = VerificationRequestSchema.parse(rawRequest);
     const runId = `offdiff-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

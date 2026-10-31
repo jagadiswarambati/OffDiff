@@ -1,3 +1,11 @@
+/**
+ * @file route.ts
+ * @description API endpoint: POST /api/verify
+ * Accepts verification requests from dashboard or external integrations,
+ * parses input using Zod, executes the OffDiffEngine pipeline, and returns
+ * structured JSON results with HTTP 200 (or HTTP 400/500 on error).
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'node:path';
 import { OffDiffEngine } from '@/core/engine';

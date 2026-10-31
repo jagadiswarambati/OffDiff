@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/**
+ * @file offdiff.js (bin)
+ * @description CLI launcher script invoking the TypeScript CLI runner via tsx.
+ */
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 

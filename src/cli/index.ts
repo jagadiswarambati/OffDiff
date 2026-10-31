@@ -1,3 +1,10 @@
+/**
+ * @file index.ts
+ * @description CLI command specification and console report formatter for OffDiff.
+ * Implements `offdiff check` with options for `--base`, `--summary`, `--repo`, `--json`,
+ * `--strict`, and `--ai`. Manages CI/CD exit codes (0=PASS, 1=FAIL/CONTRADICTED, 2=STRICT WARNING).
+ */
+
 import { Command } from 'commander';
 import pc from 'picocolors';
 import path from 'node:path';
@@ -5,6 +12,9 @@ import { OffDiffEngine } from '../core/engine';
 import { VerificationResult } from '../core/types';
 import { isRemoteGitUrl } from '../core/git';
 
+/**
+ * Constructs and configures the Commander CLI program.
+ */
 export function createCli(): Command {
   const program = new Command();
 

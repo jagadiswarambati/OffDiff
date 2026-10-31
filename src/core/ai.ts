@@ -1,3 +1,12 @@
+/**
+ * @file ai.ts
+ * @description Google GenAI and Gemma 4 AI semantic investigation service for OffDiff.
+ * Securely loads credentials from `.env.local` without leaking keys to client or logs.
+ * Evaluates semantic claims (e.g., "No breaking changes", ambiguous refactor summaries)
+ * against AST code changes using verified Gemma 4 models (`gemma-4-26b-a4b-it`),
+ * strictly validating source snippets before admitting them as evidence.
+ */
+
 import fs from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
@@ -11,16 +20,29 @@ try {
   // Ignore dotenv load errors
 }
 
+/**
+ * Result of an AI semantic investigation into a completion claim.
+ */
 export interface AIInvestigationResult {
+  /** Evaluated verdict from AI */
   verdict: ClaimVerdict;
+  /** Detailed rationale from Gemma 4 */
   explanation: string;
+  /** Confidence score between 0.0 and 1.0 */
   confidence: number;
+  /** Exact model identifier used for inference */
   modelUsed: string;
+  /** Optional file path identified as breaking */
   file?: string;
+  /** Optional line number */
   line?: number;
+  /** Code snippet quoted from source */
   evidenceSnippet?: string;
 }
 
+/**
+ * Service managing Google GenAI API communication and Gemma 4 investigations.
+ */
 export class AIService {
   private apiKey?: string;
   private rawModelName: string;
@@ -88,7 +110,14 @@ export class AIService {
   }
 
   /**
-   * Investigate ambiguous or semantic claims using the verified Gemma 4 model
+   * Investigate ambiguous or semantic claims using the verified Gemma 4 model.
+   * Prompts the LLM with Git diff hunks and asks for structured JSON verdict,
+   * then validates the returned evidence against local source code on disk.
+   *
+   * @param claimText The claim text to investigate
+   * @param gitChanges Array of file changes from the Git diff
+   * @param repoPath Absolute path to the repository
+   * @returns Structured AI investigation result
    */
   async investigateClaim(
     claimText: string,

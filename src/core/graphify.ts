@@ -1,3 +1,11 @@
+/**
+ * @file graphify.ts
+ * @description Graphify Tree-sitter code knowledge graph integration service.
+ * Executes `python -m graphify update <repo> --no-cluster` to generate `graph.json`,
+ * parses AST nodes and links, extracts `calls` relations, maps caller locations,
+ * and detects coverage status with honest fallback warnings when unavailable.
+ */
+
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
@@ -149,7 +157,12 @@ export class GraphifyService {
   }
 
   /**
-   * Parse graph data to extract all dependency relationships
+   * Parse graph data to extract all dependency relationships (calls, references).
+   * Determines whether each call site was modified in the current Git diff.
+   *
+   * @param graphData The parsed Graphify graph JSON object
+   * @param modifiedLinesByFile Map of relative file paths to their set of modified line numbers
+   * @returns List of DependencyRelationship objects with CHANGED or UNCHANGED status
    */
   extractRelationships(
     graphData: GraphifyGraphData,
@@ -191,7 +204,11 @@ export class GraphifyService {
   }
 
   /**
-   * Parse graph data to find all callers of a target function/symbol
+   * Queries the Graphify AST knowledge graph to find all caller nodes targeting a given symbol.
+   *
+   * @param graphData The parsed Graphify graph JSON object
+   * @param targetSymbol The function or symbol name to search callers for
+   * @returns Array of GraphifyCallReference objects containing caller labels and source lines
    */
   findCallersInGraph(graphData: GraphifyGraphData, targetSymbol: string): GraphifyCallReference[] {
     const results: GraphifyCallReference[] = [];

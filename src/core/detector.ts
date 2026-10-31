@@ -1,19 +1,41 @@
+/**
+ * @file detector.ts
+ * @description Missed Caller Detector for OffDiff.
+ * Combines Graphify AST call graphs with recursive AST fallback regex scanning to identify
+ * every caller of a refactored symbol across the entire repository. Cross-references each
+ * caller's file and line against the Git diff's modifiedLines to detect untouched callers.
+ */
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { GitFileChange, UntouchedCaller } from './types';
 import { GraphifyGraphData, GraphifyService } from './graphify';
 
+/**
+ * Detailed information for an identified caller call site.
+ */
 export interface CallerCallSite {
+  /** The target symbol being called */
   symbol: string;
+  /** Enclosing function or caller name */
   caller: string;
+  /** Relative file path */
   file: string;
+  /** Line number of the call */
   line: number;
+  /** 3-line code context snippet extracted from source */
   snippet: string;
+  /** Arguments passed in the call */
   callArgs: string;
+  /** Whether this call site line was modified in the Git diff */
   isModifiedInGit: boolean;
+  /** Status: UNTOUCHED if call site was not changed, UPDATED if modified */
   status: 'UNTOUCHED' | 'UPDATED' | 'UNKNOWN';
 }
 
+/**
+ * Service to locate callers of symbols and detect missed / untouched callers.
+ */
 export class MissedCallerDetector {
   private repoPath: string;
   private gitChanges: GitFileChange[];
@@ -26,7 +48,12 @@ export class MissedCallerDetector {
   }
 
   /**
-   * Find all callers of a target symbol across the repository and determine if they were updated or untouched
+   * Find all callers of a target symbol across the repository and determine if they were updated or untouched.
+   * Utilizes Graphify graph data when available and supplements with deep AST source file scanning.
+   *
+   * @param targetSymbol Name of the function/method/symbol to inspect
+   * @param graphData Optional Graphify AST graph data
+   * @returns Array of CallerCallSite objects
    */
   async detectCallers(targetSymbol: string, graphData?: GraphifyGraphData): Promise<CallerCallSite[]> {
     const callSites: CallerCallSite[] = [];

@@ -1,3 +1,10 @@
+/**
+ * @file route.ts
+ * @description API endpoint: /api/demo
+ * GET: Lists mandatory demo scenarios (Incomplete Refactor, Complete Refactor, Breaking Changes).
+ * POST: Dynamically switches the local `demo-repo` state between incomplete and complete modes.
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'node:path';
 import { setupDemoRepository } from '@/demo/setupDemo';

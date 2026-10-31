@@ -1,3 +1,10 @@
+/**
+ * @file setupDemo.ts
+ * @description In-place Git demo repository builder for OffDiff.
+ * Creates reproducible 'incomplete' (missed caller in `receipt_total`) and 'complete'
+ * refactor scenarios in `demo-repo/` using in-place git resets to avoid Windows file locks.
+ */
+
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';

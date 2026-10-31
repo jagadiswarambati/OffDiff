@@ -1,3 +1,12 @@
+/**
+ * @file offdiff.test.ts
+ * @description Comprehensive automated acceptance test suite for OffDiff.
+ * Tests Git inspection, revision validation, missed-caller detection,
+ * complete refactor clean verification, signature modification checks,
+ * Graphify AST graph generation and honest fallback, AI resiliency,
+ * and CLI gate exit code integration.
+ */
+
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import path from 'node:path';
