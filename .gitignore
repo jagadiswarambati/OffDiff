@@ -1,12 +1,25 @@
+# Dependencies
 node_modules/
+
+# Next.js build output
 .next/
 out/
 build/
 dist/
+
+# Local developer scratchpad & experiments
 scratch/
+
+# Graphify AST knowledge graph build output
 graphify-out/
+
+# OffDiff remote git repository clone cache
 .offdiff-cache/
+
+# Local environment secrets (Never commit API keys!)
 .env.local
 .env.*.local
+
+# Debug logs
 *.log
 

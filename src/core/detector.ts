@@ -195,12 +195,25 @@ export class MissedCallerDetector {
     }));
   }
 
+  /**
+   * Extracts call arguments from a single line of code matching a symbol call.
+   *
+   * @param line Single line of source text
+   * @param symbol Symbol name being invoked
+   * @returns String containing arguments passed in parentheses, or empty string
+   */
   private extractArgsFromLine(line: string, symbol: string): string {
     const regex = new RegExp(`\\b${escapeRegExp(symbol)}\\s*\\(([^)]*)\\)`);
     const match = line.match(regex);
     return match ? match[1].trim() : '';
   }
 
+  /**
+   * Normalizes a file path to forward slashes and converts absolute paths to relative paths.
+   *
+   * @param p Path string
+   * @returns Cleaned relative path
+   */
   private normalizeRelPath(p: string): string {
     let clean = p.replace(/\\/g, '/');
     if (path.isAbsolute(clean)) {
@@ -209,6 +222,13 @@ export class MissedCallerDetector {
     return clean.replace(/^\.\//, '');
   }
 
+  /**
+   * Discovers all supported source code files in a directory tree.
+   *
+   * @param dir Directory to scan
+   * @param baseDir Base root directory for relative path calculation
+   * @returns Array of relative file paths
+   */
   private findSourceFiles(dir: string, baseDir: string = dir): string[] {
     const files: string[] = [];
     const validExts = new Set(['.py', '.js', '.jsx', '.ts', '.tsx', '.go', '.rs', '.java']);
@@ -231,6 +251,12 @@ export class MissedCallerDetector {
   }
 }
 
+/**
+ * Escapes regex special characters in a literal string.
+ *
+ * @param string Literal string to escape
+ * @returns Regex-safe string pattern
+ */
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

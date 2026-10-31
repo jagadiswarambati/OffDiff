@@ -264,6 +264,10 @@ export class OffDiffEngine {
 
   /**
    * Helper function to match and parse function declarations across multiple programming languages.
+   * Extracts the function identifier and reconstructed parameter signature string.
+   *
+   * @param line Single line of source text stripped of diff prefixes
+   * @returns Object with function name and formatted signature, or null if line is not a function declaration
    */
   private parseFunctionSignatureLine(line: string): { name: string; signature: string } | null {
     // 1. Python def / async def
@@ -292,6 +296,15 @@ export class OffDiffEngine {
     return null;
   }
 
+  /**
+   * Constructs dependency caller relationships using source file AST scanning when Graphify is unavailable.
+   * Maps call sites for each changed function and compares their locations against the Git diff modified lines.
+   *
+   * @param detector MissedCallerDetector instance
+   * @param changedFns Functions modified in the Git diff
+   * @param modifiedLinesByFile Mapping of relative file paths to their modified line number sets
+   * @returns Array of DependencyRelationship objects with CHANGED or UNCHANGED status
+   */
   private async buildFallbackRelationships(
     detector: MissedCallerDetector,
     changedFns: ChangedFunction[],
